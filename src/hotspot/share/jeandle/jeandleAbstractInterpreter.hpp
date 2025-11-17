@@ -31,6 +31,7 @@
 #include "llvm/IR/LLVMContext.h"
 
 #include "jeandle/jeandleCompilation.hpp"
+#include "jeandle/jeandleType.hpp"
 
 #include "jeandle/__hotspotHeadersBegin__.hpp"
 #include "ci/ciMethodBlocks.hpp"
@@ -60,7 +61,9 @@ class JeandleVMState : public JeandleCompilationResourceObj {
   size_t stack_size() const { return _stack.size(); }
   size_t max_stack() const { return _stack.capacity(); }
 
-  llvm::Value* stack_at(int index) { return _stack[index]; }
+  llvm::Value* stack_at(int index) { return _stack[index].value(); }
+  BasicType    stack_type_at(int index) { return _stack[index].actual_type(); }
+  BasicType    stack_computational_type_at(int index) { return _stack[index].computational_type(); }
 
   void push(BasicType type, llvm::Value* value);
   llvm::Value* pop(BasicType type);
@@ -81,9 +84,9 @@ class JeandleVMState : public JeandleCompilationResourceObj {
   llvm::Value* dpop() { return pop(BasicType::T_DOUBLE); }
 
   // Untyped manipulation (for dup_x1, etc.)
-  void raw_push(llvm::Value* t) { _stack.push_back(t); }
-  llvm::Value* raw_pop() { llvm::Value* v = _stack.back(); _stack.pop_back(); return v; }
-  llvm::Value* raw_peek(size_t depth = 0) {
+  void raw_push(TypedValue tv) { _stack.push_back(tv); }
+  TypedValue raw_pop() { TypedValue v = _stack.back(); _stack.pop_back(); return v; }
+  TypedValue raw_peek(size_t depth = 0) {
     assert(depth < _stack.size(), "depth out of range");
     return _stack[_stack.size() - depth - 1];
   }
@@ -93,10 +96,12 @@ class JeandleVMState : public JeandleCompilationResourceObj {
   size_t locals_size() const { return _locals.size(); }
   size_t max_locals() const { return _locals.size(); }
 
-  void invalidate_local(int index) { _locals[index] = nullptr; }
+  void invalidate_local(int index) { _locals[index] = TypedValue::null_value(); }
 
-  llvm::Value* locals_at(int index) { return _locals[index]; }
-  void set_locals_at(int index, llvm::Value* value) { _locals[index] = value; }
+  llvm::Value* locals_at(int index) { return _locals[index].value(); }
+  BasicType locals_type_at(int index) { return _locals[index].actual_type(); }
+  BasicType locals_computational_type_at(int index) { return _locals[index].computational_type(); }
+  void set_locals_at(int index, TypedValue value) { _locals[index] = value; }
 
   llvm::Value* iload(int index) { return load(BasicType::T_INT, index); }
   void istore(int index, llvm::Value* value) { store(BasicType::T_INT, index, value); }
@@ -123,8 +128,8 @@ class JeandleVMState : public JeandleCompilationResourceObj {
   llvm::Value* lock_at(int index) { return _locks[index]; }
 
  private:
-  llvm::SmallVector<llvm::Value*> _stack;
-  llvm::SmallVector<llvm::Value*> _locals;
+  llvm::SmallVector<TypedValue> _stack;
+  llvm::SmallVector<TypedValue> _locals;
   llvm::SmallVector<llvm::Value*> _locks;
 
   llvm::LLVMContext* _context;

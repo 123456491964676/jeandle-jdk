@@ -77,19 +77,19 @@ bool JeandleVMState::match(JeandleVMState* to_match) {
   }
 
   for (size_t i = 0; i < _stack.size(); i++) {
-    if (_stack[i] == nullptr) {
-      if (to_match->_stack[i] != nullptr) {
+    if (_stack[i].is_null()) {
+      if (!to_match->_stack[i].is_null()) {
         return false;
       }
       continue;
     }
 
-    if (to_match->_stack[i] == nullptr) {
+    if (to_match->_stack[i].is_null()) {
       return false;
     }
 
     // For call instructions, getType() returns the return type.
-    if (_stack[i]->getType() != to_match->_stack[i]->getType()) {
+    if (_stack[i].value()->getType() != to_match->_stack[i].value()->getType()) {
       return false;
     }
   }
@@ -112,34 +112,34 @@ bool JeandleVMState::update_phi_nodes(JeandleVMState* income_jvm, llvm::BasicBlo
     return false;
   }
 
-  llvm::SmallVector<llvm::Value*>& income_locals = income_jvm->_locals;
-  llvm::SmallVector<llvm::Value*>& income_stack = income_jvm->_stack;
+  llvm::SmallVector<TypedValue>& income_locals = income_jvm->_locals;
+  llvm::SmallVector<TypedValue>& income_stack = income_jvm->_stack;
 
   // Create phi nodes for locals.
   for (size_t i = 0; i < _locals.size(); i++) {
-    if (_locals[i] == nullptr) {
+    if (_locals[i].is_null()) {
       continue;
     }
 
-    llvm::PHINode* phi_node = llvm::cast<llvm::PHINode>(_locals[i]);
+    llvm::PHINode* phi_node = llvm::cast<llvm::PHINode>(_locals[i].value());
 
-    if (income_locals[i] == nullptr || phi_node->getType() != income_locals[i]->getType()) {
+    if (income_locals[i].is_null() || phi_node->getType() != income_locals[i].value()->getType()) {
       invalidate_local(i);
       continue;
     }
 
-    phi_node->addIncoming(income_locals[i], income_block);
+    phi_node->addIncoming(income_locals[i].value(), income_block);
   }
 
   // Create phi nodes for stack.
   for (size_t i = 0; i < _stack.size(); i++) {
-    if (_stack[i] == nullptr) {
+    if (_stack[i].is_null()) {
       continue;
     }
 
-    llvm::PHINode* phi_node = llvm::cast<llvm::PHINode>(_stack[i]);
+    llvm::PHINode* phi_node = llvm::cast<llvm::PHINode>(_stack[i].value());
 
-    phi_node->addIncoming(income_stack[i], income_block);
+    phi_node->addIncoming(income_stack[i].value(), income_block);
   }
 
   return true;
@@ -150,31 +150,32 @@ bool JeandleVMState::update_phi_nodes(JeandleVMState* income_jvm, llvm::BasicBlo
 void JeandleVMState::push(BasicType type, llvm::Value* value) {
   assert(value != nullptr, "null value to push");
   assert(value->getType() == JeandleType::java2llvm(type, *_context), "type must match");
-  _stack.push_back(value);
+  _stack.push_back(TypedValue(type, value));
   if (is_double_word_type(type)) {
-    _stack.push_back(nullptr);
+    _stack.push_back(TypedValue::null_value());
   }
 }
 
 llvm::Value* JeandleVMState::pop(BasicType type) {
   if (is_double_word_type(type)) {
-    assert(_stack.back() == nullptr, "hi-word of doubleword value must be null");
+    assert(_stack.back().is_null(), "hi-word of doubleword value must be null");
     _stack.pop_back();
   }
-  llvm::Value* v = _stack.back();
-  assert(v != nullptr, "null value to pop");
-  assert(v->getType() == JeandleType::java2llvm(type, *_context), "type must match");
+  TypedValue v = _stack.back();
+  assert(v.value() != nullptr, "null value to pop");
+  assert(v.computational_type() == JeandleType::actual2computational(type), "type must match");
   _stack.pop_back();
-  return v;
+  return v.value();
 }
 
 // Locals operations:
 
 llvm::Value* JeandleVMState::load(BasicType type, int index) {
-  assert(!is_double_word_type(type) || _locals[index + 1] == nullptr, "hi-word of doubleword value must be null");
-  assert(_locals[index] != nullptr, "null value to load");
-  assert(_locals[index]->getType() == JeandleType::java2llvm(type, *_context), "type must match");
-  return _locals[index];
+  assert(!is_double_word_type(type) || _locals[index + 1].is_null(), "hi-word of doubleword value must be null");
+  TypedValue v = _locals[index];
+  assert(v.value() != nullptr, "null value to load");
+  assert(v.computational_type() == JeandleType::actual2computational(type), "type must match");
+  return v.value();
 }
 
 void JeandleVMState::store(BasicType type, int index, llvm::Value* value) {
@@ -182,14 +183,14 @@ void JeandleVMState::store(BasicType type, int index, llvm::Value* value) {
   assert(value->getType() == JeandleType::java2llvm(type, *_context), "type must match");
   if (index > 0) {
     // When overwriting local i, check if i - 1 was the start of a double word local and kill it.
-    llvm::Value* prev = _locals[index - 1];
-    if (prev != nullptr && JeandleType::is_double_word_type(prev->getType())) {
-      _locals[index - 1] = nullptr;
+    TypedValue prev = _locals[index - 1];
+    if ((!prev.is_null()) && JeandleType::is_double_word_type(prev.value()->getType())) {
+      _locals[index - 1] = TypedValue::null_value();
     }
   }
-  _locals[index] = value;
+  _locals[index] = TypedValue(type, value);
   if (is_double_word_type(type)) {
-    _locals[index + 1] = nullptr;
+    _locals[index + 1] = TypedValue::null_value();
   }
 }
 
@@ -273,18 +274,18 @@ void JeandleBasicBlock::initialize_VM_state_from(JeandleVMState* incoming_state,
 
     llvm::PHINode* phi_node = ir_builder.CreatePHI(incoming_state->locals_at(i)->getType(), 2);
     phi_node->addIncoming(incoming_state->locals_at(i), incoming_block);
-    _jvm->set_locals_at(i, phi_node);
+    _jvm->set_locals_at(i, TypedValue(incoming_state->locals_type_at(i), phi_node));
   }
 
   for (size_t i = 0; i < incoming_state->stack_size(); i++) {
     if (incoming_state->stack_at(i) == nullptr) {
-      _jvm->raw_push(nullptr);
+      _jvm->raw_push(TypedValue::null_value());
       continue;
     }
 
     llvm::PHINode* phi_node = ir_builder.CreatePHI(incoming_state->stack_at(i)->getType(), 2);
     phi_node->addIncoming(incoming_state->stack_at(i), incoming_block);
-    _jvm->raw_push(phi_node);
+    _jvm->raw_push(TypedValue(incoming_state->stack_type_at(i), phi_node));
   }
 }
 
@@ -864,7 +865,7 @@ void JeandleAbstractInterpreter::interpret_block(JeandleBasicBlock* block) {
 
       case Bytecodes::_arraylength: arraylength(); break;
       case Bytecodes::_athrow:
-        null_check(_jvm->raw_peek());
+        null_check(_jvm->raw_peek().value());
         dispatch_exception_to_handler(_jvm->apop());
         break;
 
@@ -1288,23 +1289,23 @@ void JeandleAbstractInterpreter::stack_op(Bytecodes::Code code) {
       break;
     }
     case Bytecodes::_dup: {
-      llvm::Value* value = _jvm->raw_pop();
+      TypedValue value = _jvm->raw_pop();
       _jvm->raw_push(value);
       _jvm->raw_push(value);
       break;
     }
     case Bytecodes::_dup_x1: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
       _jvm->raw_push(value1);
       _jvm->raw_push(value2);
       _jvm->raw_push(value1);
       break;
     }
     case Bytecodes::_dup_x2: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
-      llvm::Value* value3 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
+      TypedValue value3 = _jvm->raw_pop();
       _jvm->raw_push(value1);
       _jvm->raw_push(value3);
       _jvm->raw_push(value2);
@@ -1312,8 +1313,8 @@ void JeandleAbstractInterpreter::stack_op(Bytecodes::Code code) {
       break;
     }
     case Bytecodes::_dup2: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
       _jvm->raw_push(value2);
       _jvm->raw_push(value1);
       _jvm->raw_push(value2);
@@ -1321,9 +1322,9 @@ void JeandleAbstractInterpreter::stack_op(Bytecodes::Code code) {
       break;
     }
     case Bytecodes::_dup2_x1: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
-      llvm::Value* value3 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
+      TypedValue value3 = _jvm->raw_pop();
       _jvm->raw_push(value2);
       _jvm->raw_push(value1);
       _jvm->raw_push(value3);
@@ -1332,10 +1333,10 @@ void JeandleAbstractInterpreter::stack_op(Bytecodes::Code code) {
       break;
     }
     case Bytecodes::_dup2_x2: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
-      llvm::Value* value3 = _jvm->raw_pop();
-      llvm::Value* value4 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
+      TypedValue value3 = _jvm->raw_pop();
+      TypedValue value4 = _jvm->raw_pop();
       _jvm->raw_push(value2);
       _jvm->raw_push(value1);
       _jvm->raw_push(value4);
@@ -1345,8 +1346,8 @@ void JeandleAbstractInterpreter::stack_op(Bytecodes::Code code) {
       break;
     }
     case Bytecodes::_swap: {
-      llvm::Value* value1 = _jvm->raw_pop();
-      llvm::Value* value2 = _jvm->raw_pop();
+      TypedValue value1 = _jvm->raw_pop();
+      TypedValue value2 = _jvm->raw_pop();
       _jvm->raw_push(value1);
       _jvm->raw_push(value2);
       break;
@@ -1509,7 +1510,7 @@ void JeandleAbstractInterpreter::do_field_access(bool is_get, bool is_static) {
 
   if (!is_static) {
     size_t depth = is_get ? 0 : field->type()->size();
-    null_check(_jvm->raw_peek(depth));
+    null_check(_jvm->raw_peek(depth).value());
   }
 
   if (is_get) {
@@ -1638,7 +1639,7 @@ void JeandleAbstractInterpreter::add_safepoint_poll() {
 }
 
 void JeandleAbstractInterpreter::arraylength() {
-    null_check(_jvm->raw_peek());
+    null_check(_jvm->raw_peek().value());
 
     llvm::Value* array_oop = _jvm->apop();
 
@@ -1668,7 +1669,7 @@ void JeandleAbstractInterpreter::do_array_load(BasicType basic_type) {
   //                     |
   //                     depth = 1
   //
-  null_check(_jvm->raw_peek(1));
+  null_check(_jvm->raw_peek(1).value());
 
   switch (basic_type) {
     case T_INT: {
@@ -1728,7 +1729,7 @@ void JeandleAbstractInterpreter::do_array_store(BasicType basic_type) {
   //                     depth = sizeof(value) + 1
   //
   size_t depth = (is_double_word_type(basic_type) ? 2 : 1) + 1;
-  llvm::Value* array_ref = _jvm->raw_peek(depth);
+  llvm::Value* array_ref = _jvm->raw_peek(depth).value();
   null_check(array_ref);
 
   llvm::Value* value = nullptr;
@@ -1961,7 +1962,7 @@ void JeandleAbstractInterpreter::do_unified_newarray(Klass* array_klass) {
 }
 
 void JeandleAbstractInterpreter::monitorenter() {
-  null_check(_jvm->raw_peek());
+  null_check(_jvm->raw_peek().value());
 
   llvm::Value* obj = _jvm->apop();
 
