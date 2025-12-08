@@ -31,6 +31,10 @@
 #include "compiler/abstractCompiler.hpp"
 #include "compiler/compilerDirectives.hpp"
 
+// 新增
+#include "jeandle/jeandleCompilation.hpp"
+
+
 class JeandleCompiler : public AbstractCompiler {
  public:
   // Creation.

@@ -41,17 +41,22 @@ typedef void (*TraceTimerLogPrintFunc)(const char*, ...);
 
 // We need to explicit take address of LogImpl<>write<> and static cast
 // due to MSVC is not compliant with templates two-phase lookup
+// ？？？
 #define TRACETIME_LOG(TT_LEVEL, ...) \
     log_is_enabled(TT_LEVEL, __VA_ARGS__) ? static_cast<TraceTimerLogPrintFunc>(&LogImpl<LOG_TAGS(__VA_ARGS__)>::write<LogLevel::TT_LEVEL>) : (TraceTimerLogPrintFunc)nullptr
 
+// 继承自 StackObj，HotSpot 约定：这类对象应该只在栈上创建（不在堆上 new）
+// 意义：生命周期由作用域决定，方便 RAII（构造开始计时，析构自动结束）
 class TraceTime: public StackObj {
  private:
-  bool          _active;    // do timing
-  bool          _verbose;   // report every timing
-  elapsedTimer  _t;         // timer
-  elapsedTimer* _accum;     // accumulator
-  const char*   _title;     // name of timer
-  TraceTimerLogPrintFunc _print;
+  bool          _active;    // do timing // 是否启用计时器
+  bool          _verbose;   // report every timing // 是否在析构时打印输出
+  elapsedTimer  _t;         // timer // elapsedTimer 类型的计时器对象，用来记录本次 TraceTime 的开始/结束时间
+  elapsedTimer* _accum;     // accumulator // 用于累计多个 TraceTime 的时间：如果非空，在析构时会把 _t 记下的时间加到 _accum 中
+  const char*   _title;     // name of timer // 标题字符串（计时的名称），用于打印输出
+  // TraceTimerLogPrintFunc 类型的函数指针，指向某个日志输出函数（例如 LogImpl<...>::write<...>）。
+  // 如果为 nullptr，则默认打印到 tty（标准 VM 控制台输出）
+  TraceTimerLogPrintFunc _print; 
 
  public:
   // Constructors

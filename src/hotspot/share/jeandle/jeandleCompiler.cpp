@@ -88,7 +88,8 @@ void JeandleCompiler::compile_method(ciEnv* env, ciMethod* target, int entry_bci
 }
 
 void JeandleCompiler::print_timers() {
-  return;
+  JeandleCompilation::print_jeandle_timers();
+  return; // ？？？
 }
 
 bool JeandleCompiler::initialize_template_buffer() {

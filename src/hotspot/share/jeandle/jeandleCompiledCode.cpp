@@ -208,10 +208,26 @@ void JeandleCompiledCode::install_obj(std::unique_ptr<ObjectBuffer> obj) {
 }
 
 void JeandleCompiledCode::finalize() {
+
+  
+  // TraceTime tt_finalize("JeandleCompiledCode::finalize",
+  //                       comp->finalize_timer(),
+  //                       true,
+  //                       TRACETIME_LOG(Info,compiler,perf));
+  // TraceTime tt_finalize("JeandleCompiledCode::finalize",
+  //                       comp->finalize_timer(),
+  //                       true,
+  //                       nullptr);
+  
+  // 模仿c1的写法，就不能这样写了
+  // JeandleCompilation* comp = JeandleCompilation::current();
+  // JeandleTraceTime  tt_finalize ("JeandleCompiledCode::finalize", comp->finalize_timer());
+               
   // Set up code buffer.
   uint64_t align;
   uint64_t offset;
   uint64_t code_size;
+
   if (!ReadELF::findFunc(*_elf, _func_name, align, offset, code_size)) {
     JeandleCompilation::report_jeandle_error("compiled function is not found in the ELF file");
     return;

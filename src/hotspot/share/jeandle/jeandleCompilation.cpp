@@ -72,17 +72,41 @@ JeandleCompilation::JeandleCompilation(llvm::TargetMachine* target_machine,
                                        _context(std::make_unique<llvm::LLVMContext>()),
                                        _code(env, method),
                                        _error_msg(nullptr) {
+  // InvocationEntryBci表示正常方法调用入口
+  // OSR​ 是 On-Stack Replacement（栈上替换） 
+  // 如果入口字节码不是普通调用入口（说明是 OSR，即 On-Stack Replacement），这里直接不支持，记录不可编译原因并返回。                                    
   if (entry_bci != InvocationEntryBci) {
     env->record_method_not_compilable("OSR not supported");
     return;
   }
 
+  // 加总时间计时 //新增 这个版本的第四个都不对参数不对
+  // TraceTime tt_total("JeandleCompilation total",
+  //   &_timer_total,
+  //   true,
+  //   TRACETIME_LOG(Info, compiler, perf));
+  // TraceTime tt_total("JeandleCompilation total",
+  //   &_timer_total,
+  //   true,
+  //   nullptr);
+
+  // 新增
+  JeandleTraceTime tt_total("JeandleCompilation total", _t_jeandle_compile);
+
   // Setup compilation.
+  // 初始化HotSpot编译上下文
   initialize();
+  // 2. 使用模板 bitcode 构造 LLVM module
   setup_llvm_module(template_buffer);
 
   // Let's compile.
+  // 编译java方法：字节码->
   compile_java_method();
+  // tty->print_cr("Jeandle AI time: %f", _timer_abstract_interpreter.seconds());
+  // tty->print_cr("Jeandle LLVM opt time: %f", _timer_llvm_optimizer.seconds());
+  // tty->print_cr("Jeandle LLVM codegen time: %f", _timer_llvm_codegen.seconds());
+  // tty->print_cr("Jeandle finalize time: %f", _timer_finalize.seconds());
+  // tty->print_cr("Jeandle total time: %f", _timer_total.seconds());
 
   if (error_occurred()) {
 #ifdef ASSERT
@@ -95,7 +119,11 @@ JeandleCompilation::JeandleCompilation(llvm::TargetMachine* target_machine,
   }
 
   // Install code.
+  // 安装代码到HotSpot
   if (should_install) {
+    // install_code() 会调用 ciEnv::register_method(...)，
+    // 把 _code 中的机器码和元数据注册进 HotSpot 的 CodeCache。
+    // 之后，这个 Java 方法在运行时就可以被 JIT 调用。
     install_code();
   }
 
@@ -227,20 +255,41 @@ void JeandleCompilation::setup_llvm_module(llvm::MemoryBuffer* template_buffer) 
 
 void JeandleCompilation::compile_java_method() {
   // Build basic blocks. Then fill basic blocks with LLVM IR.
+
+  // 1. JeandleAbstractInterpreter: 把 Java 字节码翻译成 LLVM IR。
   {
+    // 新增 //无效 //可删除
+    // TraceTime tt_ai("JeandleAbstractInterpreter",
+    //                 &_timer_abstract_interpreter,
+    //                 true,
+    //                 TRACETIME_LOG(Info,compilation,perf));
+    // TraceTime tt_ai("JeandleAbstractInterpreter",
+    //                 &_timer_abstract_interpreter,
+    //                 true,
+    //                 nullptr);
+
+    // 新增
+    JeandleTraceTime tt_ai("JeandleAbstractInterpreter", _t_jeandle_abstract_interpreter);
+
     JeandleAbstractInterpreter interpret(_method, _entry_bci, *_llvm_module, _code);
   }
 
+  // 2. dump 未优化 IR（可选）
+  // 有助于开发/调试时观察未优化的 IR
   if (JeandleDumpIR) {
     dump_ir(false);
   }
 
+  // JeandleAbstractInterpreter 在构造过程中可能通过 JeandleCompilation::report_jeandle_error() 记录了错误。
+  // 若已经出错，就不再继续后续步骤，直接返回。
   if (error_occurred()) {
     return;
   }
 
+// 如果处于Debug模式下
 #ifdef ASSERT
   // Verify.
+  // 3. verify IR
   if (llvm::verifyModule(*_llvm_module, &llvm::errs())) {
     report_error("module verify failed in Jeandle compilation");
     return;
@@ -248,25 +297,56 @@ void JeandleCompilation::compile_java_method() {
 #endif
 
   // Optimize.
-  llvm::jeandle::optimize(_llvm_module.get(), llvm::OptimizationLevel::O3);
+  // 4. 
+  {
+    // 新增 //无效，可删除
+    // TraceTime tt_opt("Jeandle LLVM optimizer",
+    //                  &_timer_llvm_optimizer,
+    //                  true,
+    //                  TRACETIME_LOG(Info, compiler, perf));
+    // TraceTime tt_opt("Jeandle LLVM optimizer",
+    //                   &_timer_llvm_optimizer,
+    //                   true,
+    //                   nullptr);
+    
+    JeandleTraceTime tt_opt("Jeandle LLVM optimizer", _t_jeandle_llvm_optimizer);
+    // llvm::jeandle::optimize 是 Jeandle 封装的一个优化入口，相当于配置好一套 Pass pipeline，然后根据 O3 做尽量激进的优化。
+    // 函数做的具体事情详先不深入了解，毕竟现在用不到
+    llvm::jeandle::optimize(_llvm_module.get(), llvm::OptimizationLevel::O3);
 
+  }
+  
+  // 5. dump 优化后 IR（可选）
+  // 如果打开了 IR dump，会再输出一份 <method_name>_<timestamp>_optimized.ll，方便比较优化前后 IR 有什么变化。
   if (JeandleDumpIR) {
     dump_ir(true);
   }
 
   // Compile the module to an object file.
-  compile_module();
+  // compile_module() 本身就是 LLVM codegen
+  // 编译 LLVM module 为 object file
+  {
+    JeandleTraceTime tt_opt("Jeandle LLVM codegen", _t_jeandle_llvm_codegen);
+    compile_module();
+  }
 
   if (JeandleDumpObjects) {
     dump_obj();
   }
-
+  
+  // 编译 module 的过程可能也会调用 report_jeandle_error（比如目标机器不支持）。如果出错，这里就停止流程。
   if (error_occurred()) {
     return;
   }
 
   // Unpack LLVM code information. Generate relocations, stubs and debug information.
-  _code.finalize();
+  {
+    JeandleTraceTime tt_finalize("JeandleCompiledCode::finalize", _t_jeandle_finalize);
+    _code.finalize();
+  }
+
+  jeandle_compilation_count++;
+
 }
 
 void JeandleCompilation::compile_module() {
@@ -334,3 +414,24 @@ void JeandleCompilation::dump_ir(bool optimized) {
 
   _llvm_module->print(dump_stream, nullptr);
 }
+
+
+void JeandleCompilation::print_jeandle_timers() {
+  if (!CITime) {
+    return;
+  }
+  tty->cr();
+  tty->print_cr("  Jeandle Compile Time:       %7.3f s",
+                jeandle_timers[_t_jeandle_compile].seconds());
+  tty->print_cr("    AbstractInterpreter:      %7.3f s",
+                jeandle_timers[_t_jeandle_abstract_interpreter].seconds());
+  tty->print_cr("    LLVM Optimizer:           %7.3f s",
+                jeandle_timers[_t_jeandle_llvm_optimizer].seconds());
+  tty->print_cr("    LLVM Code Generator:      %7.3f s",
+                jeandle_timers[_t_jeandle_llvm_codegen].seconds());
+  tty->print_cr("    Finalize:                 %7.3f s",
+                jeandle_timers[_t_jeandle_finalize].seconds());
+  tty->print_cr("    (Jeandle compilations: %d)", jeandle_compilation_count);
+  tty->cr();
+}
+
