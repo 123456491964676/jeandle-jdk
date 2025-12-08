@@ -18,24 +18,12 @@
  *
  */
 
-#include "jeandle/__llvmHeadersBegin__.hpp"
-#include "llvm/IR/Jeandle/Attributes.h"
-#include "llvm/IR/Jeandle/GCStrategy.h"
+package compiler/jeandle/bytecodeTranslate/array;
 
-#include "jeandle/jeandleUtils.hpp"
-
-void JeandleFuncSig::setup_description(llvm::Function* func, bool is_stub) {
-  func->setCallingConv(llvm::CallingConv::Hotspot_JIT);
-
-  func->setGC(llvm::jeandle::JeandleGC);
-
-  if (!is_stub) {
-    llvm::GlobalVariable* personality_func = func->getParent()->getGlobalVariable("jeandle.personality");
-    assert(personality_func != nullptr, "no personality function");
-    func->setPersonalityFn(personality_func);
-  }
-
-  if (UseCompressedOops) {
-    func->addFnAttr(llvm::Attribute::get(func->getContext(), llvm::jeandle::Attribute::UseCompressedOops));
-  }
+super public class MultiANewArray1 {
+    public static Method get:"(I)Ljava/lang/Object;" stack 1 locals 1 {
+        iload_0;
+        multianewarray "[Ljava/lang/Object;", 1;
+        areturn;
+    }
 }

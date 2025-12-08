@@ -880,7 +880,7 @@ void JeandleAbstractInterpreter::interpret_block(JeandleBasicBlock* block) {
 
       case Bytecodes::_wide: ShouldNotReachHere();
 
-      case Bytecodes::_multianewarray: Unimplemented(); break;
+      case Bytecodes::_multianewarray: multianewarray(); break;
 
       case Bytecodes::_ifnull: if_null(llvm::CmpInst::ICMP_EQ); break;
       case Bytecodes::_ifnonnull: if_null(llvm::CmpInst::ICMP_NE); break;
@@ -946,10 +946,15 @@ void JeandleAbstractInterpreter::load_constant() {
   llvm::Value* value = nullptr;
 
   switch (con.basic_type()) {
+    case BasicType::T_BOOLEAN: value = JeandleType::int_const(_ir_builder, con.as_boolean()); break;
+    case BasicType::T_BYTE: value = JeandleType::int_const(_ir_builder, con.as_byte()); break;
+    case BasicType::T_CHAR: value = JeandleType::int_const(_ir_builder, con.as_char()); break;
+    case BasicType::T_SHORT: value = JeandleType::int_const(_ir_builder, con.as_short()); break;
     case BasicType::T_INT: value = JeandleType::int_const(_ir_builder, con.as_int()); break;
     case BasicType::T_LONG: value = JeandleType::long_const(_ir_builder, con.as_long()); break;
     case BasicType::T_FLOAT: value = JeandleType::float_const(_ir_builder, con.as_float()); break;
     case BasicType::T_DOUBLE: value = JeandleType::double_const(_ir_builder, con.as_double()); break;
+    case BasicType::T_ARRAY: // fall-through
     case BasicType::T_OBJECT: {
       llvm::Value* oop_handle = find_or_insert_oop(con.as_object());
       value = _ir_builder.CreateLoad(JeandleType::java2llvm(BasicType::T_OBJECT, *_context), oop_handle);
@@ -1976,15 +1981,14 @@ void JeandleAbstractInterpreter::throw_exception(llvm::Value* exception_oop) {
   }
 }
 
-void JeandleAbstractInterpreter::newarray(int element_type){
+void JeandleAbstractInterpreter::newarray(int element_type) {
   // Get array type from bytecode
   ciTypeArrayKlass* ci_array_klass = ciTypeArrayKlass::make(static_cast<BasicType>(element_type));
   Klass* array_klass = (Klass*)(ci_array_klass->constant_encoding());
   do_unified_newarray(array_klass);
 }
 
-void JeandleAbstractInterpreter::anewarray(int klass_index)
-{
+void JeandleAbstractInterpreter::anewarray(int klass_index) {
   // Get the element class from the constant pool index
   bool will_link;
   ciKlass* element_klass = _bytecodes.get_klass(will_link);
@@ -2007,6 +2011,81 @@ void JeandleAbstractInterpreter::do_unified_newarray(Klass* array_klass) {
   llvm::Value* array_klass_ptr =  _ir_builder.CreateIntToPtr(array_klass_addr, klass_type);
   llvm::CallInst* result = call_java_op("jeandle.newarray", {array_klass_ptr, length});
   _jvm->apush(result);
+}
+
+void JeandleAbstractInterpreter::multianewarray() {
+  int ndimensions = _bytecodes.get_dimensions();
+
+  bool will_link;
+  ciArrayKlass* array_klass = _bytecodes.get_klass(will_link)->as_array_klass();
+  assert(will_link, "multianewarray: not link"); // TODO: Uncommon trap.
+
+  // Note: Array classes are always initialized; no is_initialized check.
+
+  if (ndimensions == 1) {
+    // Use [a]newarray if only one dimension
+    Klass* klass = (Klass*)(array_klass->constant_encoding());
+    do_unified_newarray(klass);
+    return;
+  }
+
+  llvm::FunctionCallee callee = [&]() -> llvm::FunctionCallee {
+    switch (ndimensions) {
+      case 1:  ShouldNotReachHere(); break;
+      case 2:  return JeandleRuntimeRoutine::multianewarray2_callee(_module);
+      case 3:  return JeandleRuntimeRoutine::multianewarray3_callee(_module);
+      case 4:  return JeandleRuntimeRoutine::multianewarray4_callee(_module);
+      case 5:  return JeandleRuntimeRoutine::multianewarray5_callee(_module);
+      default: return JeandleRuntimeRoutine::multianewarrayN_callee(_module);
+    }
+  }();
+
+  llvm::PointerType* klass_type = llvm::PointerType::get(*_context, llvm::jeandle::AddrSpace::CHeapAddrSpace);
+  llvm::Value* array_klass_addr = _ir_builder.getInt64((intptr_t)(array_klass->constant_encoding()));
+  llvm::Value* array_klass_ptr = _ir_builder.CreateIntToPtr(array_klass_addr, klass_type);
+
+  llvm::SmallVector<llvm::Value*, 7> args;
+  args.push_back(array_klass_ptr);
+
+  if (ndimensions <= 5) {
+    // Get the lengths from the stack (first dimension is on top)
+    for (int index = 0; index < ndimensions; index++) {
+      args.push_back(_jvm->ipop());
+    }
+    // Reverse the dimension arguments
+    std::reverse(args.begin() + 1, args.end());
+  } else {
+    // Create a java array for dimension sizes
+    Klass* int_array_klass = (Klass*)(ciTypeArrayKlass::make(T_INT)->constant_encoding());
+    llvm::Value* int_array_klass_addr = _ir_builder.getInt64((intptr_t)int_array_klass);
+    llvm::PointerType* klass_type = llvm::PointerType::get(*_context, llvm::jeandle::AddrSpace::CHeapAddrSpace);
+    llvm::Value* int_array_klass_ptr = _ir_builder.CreateIntToPtr(int_array_klass_addr, klass_type);
+
+    llvm::Value* dimensions_array_length = _ir_builder.getInt32(ndimensions);
+
+    llvm::CallInst* dimensions_array_oop = call_java_op("jeandle.newarray", {int_array_klass_ptr, dimensions_array_length});
+
+    llvm::Value* array_base_offset = _ir_builder.CreateLoad(llvm::Type::getInt32Ty(*_context),
+                                                            _module.getGlobalVariable("arrayOopDesc.base_offset_in_bytes.int", true));
+    llvm::Value* array_base = _ir_builder.CreateInBoundsPtrAdd(dimensions_array_oop, array_base_offset,
+                                                               "dimension_array_element_base");
+
+    // Fill-in it with values
+    for (int index = ndimensions - 1; index >= 0; index--) {
+      // No need to do boundary_check here
+      llvm::Value* index_value = _ir_builder.getInt32(index);
+      llvm::Value* element_address = _ir_builder.CreateInBoundsGEP(llvm::Type::getInt32Ty(*_context), array_base, index_value,
+                                                                   "dimension_" + std::to_string(index) + "_array_element_address");
+      llvm::StoreInst* store_inst = _ir_builder.CreateStore(_jvm->ipop(), element_address);
+    }
+
+    // Push the dimensions_array_oop
+    args.push_back(dimensions_array_oop);
+  }
+
+  args.push_back(call_java_op("jeandle.current_thread", {}));
+
+  _jvm->apush(call_jeandle_routine(callee, args, llvm::CallingConv::Hotspot_JIT));
 }
 
 void JeandleAbstractInterpreter::monitorenter() {
