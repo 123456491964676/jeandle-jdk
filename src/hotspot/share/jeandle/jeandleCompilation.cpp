@@ -57,6 +57,36 @@
 #include "logging/log.hpp"
 #include "runtime/sharedRuntime.hpp"
 
+enum JeandleTimerName : int {
+  compilation_timer = 0,
+    abstract_interpreter_timer,
+    llvm_optimizer_timer,
+    llvm_codegen_timer,
+    finalize_timer,
+  max_phase_timers
+};
+
+// Static timer array, corresponding to C1's Compilation::timers[]
+static elapsedTimer jeandle_timers[max_phase_timers];
+
+// Counts how many methods have been compiled by Jeandle (optional)
+static int jeandle_compilation_count = 0;
+
+class JeandleTraceTime : public TraceTime {
+ private:
+  JeandleTimerName _timer;
+
+ public:
+  JeandleTraceTime(const char* name, JeandleTimerName timer_name)
+  : TraceTime(name, &jeandle_timers[timer_name], CITime || CITimeEach, CITimeVerbose),
+    _timer(timer_name)
+  {
+      // If compile logging is needed in the future, add log->begin_head()/stamp()/end_head() here
+  }
+
+  ~JeandleTraceTime() = default;
+};
+
 JeandleCompilation::JeandleCompilation(llvm::TargetMachine* target_machine,
                                        llvm::DataLayout* data_layout,
                                        ciEnv* env,
@@ -76,6 +106,8 @@ JeandleCompilation::JeandleCompilation(llvm::TargetMachine* target_machine,
     env->record_method_not_compilable("OSR not supported");
     return;
   }
+
+  JeandleTraceTime tt_total("JeandleCompilation total", compilation_timer);
 
   // Setup compilation.
   initialize();
@@ -228,6 +260,7 @@ void JeandleCompilation::setup_llvm_module(llvm::MemoryBuffer* template_buffer) 
 void JeandleCompilation::compile_java_method() {
   // Build basic blocks. Then fill basic blocks with LLVM IR.
   {
+    JeandleTraceTime tt_abstract_interpreter("JeandleAbstractInterpreter", abstract_interpreter_timer);
     JeandleAbstractInterpreter interpret(_method, _entry_bci, *_llvm_module, _code);
   }
 
@@ -248,14 +281,20 @@ void JeandleCompilation::compile_java_method() {
 #endif
 
   // Optimize.
-  llvm::jeandle::optimize(_llvm_module.get(), llvm::OptimizationLevel::O3);
+  {
+    JeandleTraceTime tt_optimize("Jeandle LLVM optimizer", llvm_optimizer_timer);
+    llvm::jeandle::optimize(_llvm_module.get(), llvm::OptimizationLevel::O3);
+  }
 
   if (JeandleDumpIR) {
     dump_ir(true);
   }
 
   // Compile the module to an object file.
-  compile_module();
+  {
+    JeandleTraceTime tt_codegen("Jeandle LLVM codegen", llvm_codegen_timer);
+    compile_module();
+  }
 
   if (JeandleDumpObjects) {
     dump_obj();
@@ -266,7 +305,12 @@ void JeandleCompilation::compile_java_method() {
   }
 
   // Unpack LLVM code information. Generate relocations, stubs and debug information.
-  _code.finalize();
+  {
+    JeandleTraceTime tt_finalize("JeandleCompiledCode::finalize", finalize_timer);
+    _code.finalize();
+  }
+
+  jeandle_compilation_count++;
 }
 
 void JeandleCompilation::compile_module() {
@@ -333,4 +377,18 @@ void JeandleCompilation::dump_ir(bool optimized) {
   }
 
   _llvm_module->print(dump_stream, nullptr);
+}
+
+void JeandleCompilation::print_jeandle_timers() {
+  if (!CITime) {
+    return;
+  }
+  tty->cr();
+  tty->print_cr("  Jeandle Compile Time      :      %7.3f s", jeandle_timers[compilation_timer].seconds());
+  tty->print_cr("    Abstract Interpret      :      %7.3f s", jeandle_timers[abstract_interpreter_timer].seconds());
+  tty->print_cr("    LLVM Optimize           :      %7.3f s", jeandle_timers[llvm_optimizer_timer].seconds());
+  tty->print_cr("    LLVM CodeGen            :      %7.3f s", jeandle_timers[llvm_codegen_timer].seconds());
+  tty->print_cr("    finalize                :      %7.3f s", jeandle_timers[finalize_timer].seconds());
+  tty->print_cr("  (Jeandle compilations: %d)", jeandle_compilation_count);
+  tty->cr();
 }

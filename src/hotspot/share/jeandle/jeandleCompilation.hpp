@@ -36,6 +36,10 @@
 #include "ci/ciMethod.hpp"
 #include "memory/arena.hpp"
 
+#include "runtime/timer.hpp"
+#include "runtime/timerTrace.hpp"
+#include "compiler/compiler_globals.hpp"
+
 class JeandleCompilation : public StackObj {
  public:
   // Compile a Java method.
@@ -69,6 +73,7 @@ class JeandleCompilation : public StackObj {
   bool error_occurred() const { return _error_msg != nullptr; }
   static void report_jeandle_error(const char* msg) { JeandleCompilation::current()->report_error(msg); }
   static bool jeandle_error_occurred() { return JeandleCompilation::current()->error_occurred(); }
+  static void print_jeandle_timers();
 
   JeandleCompiledCode* compiled_code() { return &_code; }
 
