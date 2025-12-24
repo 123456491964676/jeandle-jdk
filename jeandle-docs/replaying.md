@@ -59,8 +59,6 @@ After execution, two IR files are generated for different replay stages:
 - `[Method].ll`: Use for **Middle-end Replay** (via `opt`).
 - `[Method]_optimized.ll`: Use for **Backend Replay** (via `llc`).
 
----
-
 ## Middle-End Optimization Replay
 
 Use the `opt` tool on the **unoptimized IR file**:
