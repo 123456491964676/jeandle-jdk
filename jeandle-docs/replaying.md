@@ -42,7 +42,7 @@ public class Main {
 
 By enabling `-XX:+JeandleDumpIR` and `-XX:JeandleDumpDirectory`, the compiler will dump the IR and store it in the specified directory.
 
-### Step 1: Compile and Dump IR
+### Compile and Dump IR
 
 Run the following command:
 
@@ -59,7 +59,7 @@ After execution, you will find two IR files in the specified directory:
 - `Main_fibonacci_1766477713319.ll` - Unoptimized IR (direct output from Jeandle frontend)
 - `Main_fibonacci_1766477713319_optimized.ll` - Optimized IR (after Jeandle optimizer passes)
 
-**Key Distinction**:
+Key Distinction:
 - The unoptimized `.ll` file is used for **middle-end optimization replay**
 - The optimized `_optimized.ll` file is used for **backend code generation replay**
 
