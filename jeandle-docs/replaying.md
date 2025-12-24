@@ -1,14 +1,23 @@
-# 使用jeandle LLVM工具重现Jeandle 编译过程
-## 简单介绍
-```jeandle```编译器支持```dump```出```IR```并通过```jeandle LLVM```工具进行中端优化和后端复现
+# Replaying Jeandle Compilation Process Using Jeandle LLVM Tools
 
-## 前置条件
-你需要先按照[Getting-Started](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/getting-started.md)文档中的内容获取到源码并构建出JDK,同时你应该保证整个复现过程使用的是```jeandle-jdk```和```jeandle-llvm```.
-复现过程会使用到jeandle的标志```JeandleDumpIR``` ```UseJeandleCompiler``` ```JeandleDumpDirectory```
-如果你不清楚这些标志的含义,请点击[jeandle-flags](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/jeandle-flags.md)
+## Brief Introduction
 
-## 具体使用
-An example of is as follows:Fibonacci
+The Jeandle compiler supports dumping LLVM IR and replaying the compilation process through middle-end optimization and backend code generation using Jeandle LLVM tools.
+
+## Prerequisites
+
+You need to first obtain the source code and build the JDK following the [Getting-Started](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/getting-started.md) documentation. You should ensure that both `jeandle-jdk` and `jeandle-llvm` are used throughout the replay process.
+
+The replay process relies on the following Jeandle flags: `JeandleDumpIR`, `UseJeandleCompiler`, and `JeandleDumpDirectory`.
+
+If you are unfamiliar with these flags, please refer to [jeandle-flags](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/jeandle-flags.md).
+
+## Detailed Usage
+
+### Example: Fibonacci
+
+Consider the following Java program:
+
 ```java
 public class Main {
 
@@ -30,9 +39,14 @@ public class Main {
     }
 }
 ```
-这里启用```-XX:+JeandleDumpIR```和```-XX:JeandleDumpDirectory```使得编译器dump出IR并存储在指定路径
-使用下面命令运行jeandle
-```
+
+By enabling `-XX:+JeandleDumpIR` and `-XX:JeandleDumpDirectory`, the compiler will dump the IR and store it in the specified directory.
+
+### Step 1: Compile and Dump IR
+
+Run the following command:
+
+```bash
 javac Main.java
 java -XX:-TieredCompilation -Xcomp \
      -XX:CompileCommand=compileonly,Main::fibonacci \
@@ -40,38 +54,73 @@ java -XX:-TieredCompilation -Xcomp \
      -XX:+JeandleDumpIR \
      -XX:JeandleDumpDirectory=/tmp/jeandle_ir Main
 ```
-你会在你设置的存储目录中得到下面两个文件```Main_fibonacci_1766477713319.ll``` ```Main_fibonacci_1766477713319_optimized.ll```.
-```Main_fibonacci_1766477713319.ll```是未经```jeandle LLVM```优化过的,```Main_fibonacci_1766477713319_optimized.ll```则是经过优化的.
 
-## 中端优化复现
-中端优化复现使用opt工具.
-对```Main_fibonacci_1766477713319.ll```进行中端优化,复现命令如下:
-```
-opt -S -passes='rewrite-statepoints-for-gc,default<O3>' Main_fibonacci_1766477713319.ll -o Main_fibonacci_Middle_optimized.ll
-```
+After execution, you will find two IR files in the specified directory:
+- `Main_fibonacci_1766477713319.ll` - Unoptimized IR (direct output from Jeandle frontend)
+- `Main_fibonacci_1766477713319_optimized.ll` - Optimized IR (after Jeandle optimizer passes)
 
-## 后端复现
-后端复现使用llc工具.
-在中端优化复现中我们已经得到```Main_fibonacci_Middle_optimized.ll```.
-对```Main_fibonacci_Middle_optimized.ll```进行后端复现,命令如下:
-```
-llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_Middle_optimized.ll -o Main_fibonacci_Middle_replay.o
-```
+**Key Distinction**:
+- The unoptimized `.ll` file is used for **middle-end optimization replay**
+- The optimized `_optimized.ll` file is used for **backend code generation replay**
 
-同理,直接对```Main_fibonacci_1766477713319_optimized.ll```进行后端复现的命令如下:
-```
-llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_1766477713319_optimized.ll -o Main_fibonacci_Back_replay.o
+---
+
+## Middle-End Optimization Replay
+
+Use the `opt` tool on the **unoptimized IR file**:
+
+```bash
+opt -S -passes='rewrite-statepoints-for-gc,default<O3>' \
+    Main_fibonacci_1766477713319.ll \
+    -o Main_fibonacci_manual_optimized.ll
 ```
 
-## 结果验证
-```jeandle```后端的一个核心约束是java调用点必须4字节对齐
-检查命令:
+
+### Verification
+
+Compare the manually optimized result with Jeandle's optimized output:
+
+```bash
+diff -u Main_fibonacci_manual_optimized.ll Main_fibonacci_1766477713319_optimized.ll
 ```
-llvm-objdump -d Main_fibonacci_Middle_replay.o
-llvm-objdump -d Main_fibonacci_Back_replay.o
+
+
+## Backend Code Generation Replay
+
+### Purpose
+
+Replay the backend compilation phase to verify instruction selection and machine code layout, particularly focusing on 4-byte alignment at Java call sites.
+
+### Important Note
+
+**Use the optimized IR file (`_optimized.ll`) directly for backend replay**, not the unoptimized version. The unoptimized IR may cause crashes during compilation.
+
+### Command
+
+```bash
+llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
+    Main_fibonacci_1766477713319_optimized.ll \
+    -o Main_fibonacci_backend_replay.o
 ```
-验证示例
-观察反汇编中的地址:
+
+## Result Verification: Checking 4-Byte Alignment
+
+### Core Constraint
+
+Jeandle's backend enforces a critical constraint: **all Java call sites must be 4-byte aligned**. This ensures safe patching and safepoint handling.
+
+### Verification Commands
+
+Disassemble the generated object files:
+
+```bash
+llvm-objdump -d Main_fibonacci_backend_replay.o
+llvm-objdump -d Main_fibonacci_manual_optimized.o
+```
+
+### Verification Example
+
+Examine the disassembly output:
 
 ```text
      13: 90                            nop
@@ -79,5 +128,10 @@ llvm-objdump -d Main_fibonacci_Back_replay.o
      17: 0f 1f 44 00 08                nopl    0x8(%rax,%rax)
      1c: 89 44 24 18                   movl    %eax, 0x18(%rsp)
 ```
-判定: NOP 片段结束后的下一条指令起始地址为 0x1c (28).
-结果: 28 % 4 == 0,对齐正确.
+
+**Analysis**:
+- The NOP padding segment ends at address `0x17`
+- The next instruction starts at address `0x1c` (decimal 28)
+- Alignment check: `28 % 4 == 0` ✓
+
+**Result**: Alignment is correct.
