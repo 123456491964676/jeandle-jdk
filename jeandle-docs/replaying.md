@@ -3,7 +3,7 @@
 Jeandle编译器支持dump 出 IR 并通过 Jeandle LLVM 工具进行中端优化和后端复现
 
 ## 前置条件
-你需要先按照[Getting Started](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/getting-started.md)文档中的内容获取到源码并构建出JDK
+你需要先按照[Getting-Started](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/getting-started.md)文档中的内容获取到源码并构建出JDK
 
 ## JVM 标志
 会使用到下面的标志
