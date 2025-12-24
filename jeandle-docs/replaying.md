@@ -75,16 +75,6 @@ opt -S -passes='rewrite-statepoints-for-gc,default<O3>' \
     -o Main_fibonacci_manual_optimized.ll
 ```
 
-
-### Verification
-
-Compare the manually optimized result with Jeandle's optimized output:
-
-```bash
-diff -u Main_fibonacci_manual_optimized.ll Main_fibonacci_1766477713319_optimized.ll
-```
-
-
 ## Backend Code Generation Replay
 
 ### Purpose
@@ -97,17 +87,28 @@ Replay the backend compilation phase to verify instruction selection and machine
 
 ### Command
 
+# Backend Code Generation Replay
+
+Backend replay uses the `llc` tool. After obtaining `Main_fibonacci_manual_optimized.ll` from the middle-end optimization replay phase, we proceed with backend code generation.
+
+The backend replay command is as follows:
+
+```bash
+llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
+    Main_fibonacci_manual_optimized.ll \
+    -o Main_fibonacci_middle_replay.o
+```
+
+Similarly, you can directly perform backend replay on `Main_fibonacci_1766477713319_optimized.ll`. The command is as follows:
+
 ```bash
 llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
     Main_fibonacci_1766477713319_optimized.ll \
     -o Main_fibonacci_backend_replay.o
 ```
 
-## Result Verification: Checking 4-Byte Alignment
-
-### Core Constraint
-
-Jeandle's backend enforces a critical constraint: **all Java call sites must be 4-byte aligned**. This ensures safe patching and safepoint handling.
+## Result Verification
+Jeandle's backend enforces a critical constraint: **all Java call sites must be 4-byte aligned**.
 
 ### Verification Commands
 
