@@ -89,19 +89,15 @@ llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu \
     -o Main_fibonacci_backend_replay.o
 ```
 
-## Result Verification
+## Result Analysis
 Jeandle's backend enforces a critical constraint: **all Java call sites must be 4-byte aligned**.
 
-### Verification Commands
-
-Disassemble the generated object files:
+Run the following commands to inspect the machine code:
 
 ```bash
 llvm-objdump -d Main_fibonacci_backend_replay.o
 llvm-objdump -d Main_fibonacci_manual_optimized.o
 ```
-
-### Verification Example
 
 Examine the disassembly output:
 
@@ -112,9 +108,9 @@ Examine the disassembly output:
      1c: 89 44 24 18                   movl    %eax, 0x18(%rsp)
 ```
 
-**Analysis**:
+Analysis:
 - The NOP padding segment ends at address `0x17`
 - The next instruction starts at address `0x1c` (decimal 28)
 - Alignment check: `28 % 4 == 0` ✓
 
-**Result**: Alignment is correct.
+Result: Alignment is correct.
