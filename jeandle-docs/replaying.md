@@ -45,27 +45,49 @@ java -XX:-TieredCompilation -Xcomp \
      -XX:+JeandleDumpIR \
      -XX:JeandleDumpDirectory=/tmp/jeandle_ir Main
 ```
-你会在你设置的存储目录中得到类似Main_fibonacci_1766477713319_optimized.ll的文件
+你会在你设置的存储目录中得到下面两个文件
+```Main_fibonacci_1766477713319.ll```
+```Main_fibonacci_1766477713319_optimized.ll```
+
 
 ## 中端优化复现
-中端优化复现使用opt工具
+中端优化复现使用opt工具，对Main_fibonacci_1766477713319.ll进行中端优化
 复现命令如下：
 ```
-opt -S -passes='rewrite-statepoints-for-gc,default<O3>' [Method].ll -o manual_optimized.ll
+
+```
+如果使用这个命令，那么后端优化的时候会失败：
+opt -O3 Main_fibonacci_1766477713319.ll -o Main_fibonacci_Middle_optimized.ll
+
+也就是这一步会失败
+llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_optimized.ll -o Main_fibonacci_replay.o
+```
+使用这个命令才对：
+```
+opt -S -passes='rewrite-statepoints-for-gc,default<O3>' Main_fibonacci_1766477713319.ll -o Main_fibonacci_Middle_optimized.ll
 ```
 
 ## 后端复现
-后端复现使用llc工具
+在 中端优化复现 中我们已经得到 Main_fibonacci_Middle_optimized.ll
+后端复现使用llc工具，对 Main_fibonacci_Middle_optimized.ll 进行后端优化
 复现命令如下：
 ```
-llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu [Method]_optimized.ll -o manual_replay.o
+llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_Middle_optimized.ll -o Main_fibonacci_Middle_replay.o
+```
+
+同理，直接对```Main_fibonacci_1766477713319_optimized.ll```进行后端复现的命令如下
+```
+llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_1766477713319_optimized.ll -o Main_fibonacci_Back_replay.o
 ```
 
 ## 结果验证
 jeandle后端的一个核心约束是java调用点必须4字节对齐
 检查命令：
 ```
-llvm-objdump -d manual_replay.o
+llvm-objdump -d Main_fibonacci_Middle_replay.o
+```
+```
+llvm-objdump -d Main_fibonacci_Back_replay.o
 ```
 验证示例
 观察反汇编中的地址：
