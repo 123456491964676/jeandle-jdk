@@ -54,14 +54,13 @@ java -XX:-TieredCompilation -Xcomp \
 中端优化复现使用opt工具，对Main_fibonacci_1766477713319.ll进行中端优化
 复现命令如下：
 ```
-
-```
 如果使用这个命令，那么后端优化的时候会失败：
 opt -O3 Main_fibonacci_1766477713319.ll -o Main_fibonacci_Middle_optimized.ll
 
 也就是这一步会失败
 llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu Main_fibonacci_optimized.ll -o Main_fibonacci_replay.o
 ```
+
 使用这个命令才对：
 ```
 opt -S -passes='rewrite-statepoints-for-gc,default<O3>' Main_fibonacci_1766477713319.ll -o Main_fibonacci_Middle_optimized.ll
