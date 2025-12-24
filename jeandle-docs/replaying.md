@@ -2,7 +2,7 @@
 
 ## Brief Introduction
 
-The Jeandle compiler supports dumping LLVM IR and replaying the compilation process through middle-end optimization and backend code generation using Jeandle LLVM tools.
+The Jeandle compiler supports dumping LLVM IR and replaying the compilation process through middle-end optimization and backend machine code generation using Jeandle LLVM tools.
 
 ## Prerequisites
 
@@ -55,13 +55,9 @@ java -XX:-TieredCompilation -Xcomp \
      -XX:JeandleDumpDirectory=/tmp/jeandle_ir Main
 ```
 
-After execution, you will find two IR files in the specified directory:
-- `Main_fibonacci_1766477713319.ll` - Unoptimized IR (direct output from Jeandle frontend)
-- `Main_fibonacci_1766477713319_optimized.ll` - Optimized IR (after Jeandle optimizer passes)
-
-Key Distinction:
-- The unoptimized `.ll` file is used for **middle-end optimization replay**
-- The optimized `_optimized.ll` file is used for **backend code generation replay**
+After execution, two IR files are generated for different replay stages:
+- `[Method].ll`: Use for **Middle-end Replay** (via `opt`).
+- `[Method]_optimized.ll`: Use for **Backend Replay** (via `llc`).
 
 ---
 
@@ -77,7 +73,7 @@ opt -S -passes='rewrite-statepoints-for-gc,default<O3>' \
 
 # Backend Code Generation Replay
 
-Backend replay uses the `llc` tool. After obtaining `Main_fibonacci_manual_optimized.ll` from the middle-end optimization replay phase, we proceed with backend code generation.
+Backend replay uses the `llc` tool. After obtaining `Main_fibonacci_manual_optimized.ll` from the middle-end optimization replay phase, we proceed with backend machine code generation.
 
 The backend replay command is as follows:
 
