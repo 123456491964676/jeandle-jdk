@@ -63,7 +63,7 @@ Use the `opt` tool on the **unoptimized IR file**:
 
 ```bash
 opt -S -passes='rewrite-statepoints-for-gc,default<O3>' \
-    Main_fibonacci_1766477713319.ll \
+    [Method].ll \
     -o Main_fibonacci_manual_optimized.ll
 ```
 
@@ -83,7 +83,7 @@ Similarly, you can directly perform backend replay on `Main_fibonacci_1766477713
 
 ```bash
 llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu \
-    Main_fibonacci_1766477713319_optimized.ll \
+    [Method]_optimized.ll \
     -o Main_fibonacci_backend_replay.o
 ```
 
@@ -93,8 +93,8 @@ Jeandle's backend enforces a critical constraint: **all Java call sites must be 
 Run the following commands to inspect the machine code:
 
 ```bash
+llvm-objdump -d Main_fibonacci_middle_replay.o
 llvm-objdump -d Main_fibonacci_backend_replay.o
-llvm-objdump -d Main_fibonacci_manual_optimized.o
 ```
 
 Examine the disassembly output:
