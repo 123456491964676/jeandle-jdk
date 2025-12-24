@@ -14,9 +14,7 @@ If you are unfamiliar with these flags, please refer to [jeandle-flags](https://
 
 ## Detailed Usage
 
-### Example: Fibonacci
-
-Consider the following Java program:
+An example of Fibonacci is as follows:
 
 ```java
 public class Main {
