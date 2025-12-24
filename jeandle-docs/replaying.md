@@ -1,6 +1,6 @@
 # 使用jeandle LLVM工具重现Jeandle 编译过程
 ## 简单介绍
-```Jeandle```编译器支持dump出```IR```并通过```Jeandle LLVM```工具进行中端优化和后端复现
+```jeandle```编译器支持```dump```出```IR```并通过```jeandle LLVM```工具进行中端优化和后端复现
 
 ## 前置条件
 你需要先按照[Getting-Started](https://github.com/jeandle/jeandle-jdk/blob/main/jeandle-docs/getting-started.md)文档中的内容获取到源码并构建出JDK,同时你应该保证整个复现过程使用的是```jeandle-jdk```和```jeandle-llvm```.
@@ -41,7 +41,7 @@ java -XX:-TieredCompilation -Xcomp \
      -XX:JeandleDumpDirectory=/tmp/jeandle_ir Main
 ```
 你会在你设置的存储目录中得到下面两个文件```Main_fibonacci_1766477713319.ll``` ```Main_fibonacci_1766477713319_optimized.ll```.
-```Main_fibonacci_1766477713319.ll```是未经```Jeandle LLVM```优化过的,```Main_fibonacci_1766477713319_optimized.ll```则是经过优化的.
+```Main_fibonacci_1766477713319.ll```是未经```jeandle LLVM```优化过的,```Main_fibonacci_1766477713319_optimized.ll```则是经过优化的.
 
 ## 中端优化复现
 中端优化复现使用opt工具.
