@@ -75,18 +75,6 @@ opt -S -passes='rewrite-statepoints-for-gc,default<O3>' \
     -o Main_fibonacci_manual_optimized.ll
 ```
 
-## Backend Code Generation Replay
-
-### Purpose
-
-Replay the backend compilation phase to verify instruction selection and machine code layout, particularly focusing on 4-byte alignment at Java call sites.
-
-### Important Note
-
-**Use the optimized IR file (`_optimized.ll`) directly for backend replay**, not the unoptimized version. The unoptimized IR may cause crashes during compilation.
-
-### Command
-
 # Backend Code Generation Replay
 
 Backend replay uses the `llc` tool. After obtaining `Main_fibonacci_manual_optimized.ll` from the middle-end optimization replay phase, we proceed with backend code generation.
