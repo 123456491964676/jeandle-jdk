@@ -82,7 +82,7 @@ Backend replay uses the `llc` tool. After obtaining `Main_fibonacci_manual_optim
 The backend replay command is as follows:
 
 ```bash
-llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
+llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu \
     Main_fibonacci_manual_optimized.ll \
     -o Main_fibonacci_middle_replay.o
 ```
@@ -90,7 +90,7 @@ llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
 Similarly, you can directly perform backend replay on `Main_fibonacci_1766477713319_optimized.ll`. The command is as follows:
 
 ```bash
-llc -O1 -filetype=obj -mtriple=x86_64-linux-gnu \
+llc -O3 -filetype=obj -mtriple=x86_64-linux-gnu \
     Main_fibonacci_1766477713319_optimized.ll \
     -o Main_fibonacci_backend_replay.o
 ```
